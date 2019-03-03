@@ -1,0 +1,210 @@
+---
+title: "Data mining HW 3"
+output: html_notebook
+---
+
+
+
+```{r}
+#
+# data
+# 
+
+library(class)
+library(kernlab)
+library(naivebayes)
+library(dummies)
+require(methods)
+library(glmnet)
+library(MASS)
+library(corrplot)
+library(pls)
+library(caret)
+library(ranger)
+library(e1071)
+library(FNN)
+library(gbm)
+library(randomForest)
+library(rpart)
+library(BBmisc)
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/assignment 3")
+train = read.csv("train.csv", header = TRUE)
+test  = read.csv("test.csv",  header = TRUE)
+dim(test)
+head(train)
+test_id=seq(1,nrow(test))
+x_train=train[,2:11]
+#
+# normalize
+#
+train_std=normalize(train[,-1],method = "standardize")
+train_std$SeriousDlqin2yrs=train$SeriousDlqin2yrs
+test_std=normalize(test,method = "standardize")
+
+
+#
+# log
+#
+train_log=train
+test_log=test
+
+zero = which(train_log$MonthlyIncome <= 0.0000)
+zeros = which(test_log$MonthlyIncome <= 0.0000)
+offset = 0.0000001
+train_log$MonthlyIncome[zero] = train_log$MonthlyIncome[zero] + offset
+test_log$MonthlyIncome[zeros] = test_log$MonthlyIncome[zeros] + offset
+
+train_log$MonthlyIncome= log(train_log$MonthlyIncome)
+test_log$MonthlyIncome= log(test_log$MonthlyIncome)
+#
+#PCA
+#
+combined=rbind(train[,-1],test)
+pca_result=prcomp(combined,scale=TRUE)
+cumulative_variation = cumsum((pca_result$sdev^2)/sum(pca_result$sdev^2))
+max(which(cumulative_variation < 0.95))
+
+train_pca=as.data.frame(pca_result$x[1:5049,1:10])
+x_train_pca=train_pca
+test_pca=as.data.frame(pca_result$x[5050:106552,1:10])
+train_pca$SeriousDlqin2yrs=train$SeriousDlqin2yrs
+dim(test_pca)
+```
+
+```{r}
+#
+# Logistic
+#
+logis=glm(SeriousDlqin2yrs~.,data=train,family = binomial,control = glm.control(maxit = 5000))
+#logitmodel <- glm(itn ~  altitude, family=binomial(link="logit"), data=logitdata)
+#summary(logitmodel)
+
+log_pred=predict(logis, newdata=test,type="response")
+
+my_submission = data.frame(Id = test_id, 	Probability =log_pred )
+write.csv(my_submission, "logistic_max.csv", row.names = F)
+```
+
+```{r}
+#
+# Logistic log-standard-pca
+#
+logis=glm(SeriousDlqin2yrs~.,data=train_log,family = binomial)
+log_pred=predict(logis, newdata=test_log,type="response")
+
+logis=glm(SeriousDlqin2yrs~.,data=train_std,family = binomial)
+log_pred=predict(logis, newdata=test_std,type="response")
+
+logis=glm(SeriousDlqin2yrs~(.)^2,data=train_pca,family = binomial,control = glm.control(maxit = 5000))
+log_pred=predict(logis, newdata=test_pca,type="response")
+
+my_submission = data.frame(Id = test_id, 	Probability =log_pred )
+write.csv(my_submission, "logistic_pca_int.csv", row.names = F)
+```
+
+```{r}
+#
+# Naive Bayes
+#
+
+#nabayes=naive_bayes(x = x_train, y = as.factor(train$SeriousDlqin2yrs),laplace = 0)
+nabayes=naive_bayes(x = x_train_pca, y = as.factor(train_pca$SeriousDlqin2yrs),laplace = 0)
+nabayes_pred = predict(nabayes, test_pca,type =c("prob"))
+
+
+my_submission = data.frame(Id = test_id, 	Probability =nabayes_pred[,2] )
+write.csv(my_submission, "naiveBayes_pca.csv", row.names = F)
+
+```
+
+
+```{r}
+#
+# Ridge
+#
+
+
+ridge_fit=cv.glmnet(as.matrix(x_train_pca), train_pca$SeriousDlqin2yrs, alpha=0, nfolds=10, family="binomial",type.measure = "auc")
+
+ridge_pred=predict(ridge_fit, as.matrix(test_pca), s=ridge_fit$lambda.min,type="response")
+ridge_pred=as.numeric(ridge_pred)
+my_submission = data.frame(Id = test_id, 	Probability =ridge_pred )
+write.csv(my_submission, "ridge_pca.csv", row.names = F)
+```
+
+
+```{r}
+#
+# Lasso
+#
+
+lasso_fit=cv.glmnet(as.matrix(x_train_pca), train_pca$SeriousDlqin2yrs, alpha=1, nfolds=10, family="binomial",type.measure = "auc")
+
+lasso_pred=predict(lasso_fit, as.matrix(test_pca), s=lasso_fit$lambda.min,type="response")
+lasso_pred=as.numeric(lasso_pred)
+
+my_submission = data.frame(Id = test_id, 	Probability =lasso_pred )
+write.csv(my_submission, "lasso_pca.csv", row.names = F)
+```
+
+
+```{r}
+#
+# Tree
+#
+
+
+sigle_tree = rpart(train_pca$SeriousDlqin2yrs~., control = rpart.control(minsplit = 85,cp=0), data=train_pca)
+
+tree_pred = predict(sigle_tree, newdata=test_pca)
+
+my_submission = data.frame(Id = test_id, 	Probability =tree_pred )
+write.csv(my_submission, "tree_pca_85.csv", row.names = F)
+
+```
+
+
+```{r}
+#
+#k nearest neighbor
+#
+
+knn = knn(x_train_pca,test_pca,train_pca$SeriousDlqin2yrs,k=10,prob=TRUE)
+kn_pred=1-attr(knn,"prob")
+
+
+my_submission = data.frame(Id = test_id, 	Probability =kn_pred )
+write.csv(my_submission, "knn_pca.csv", row.names = F)
+```
+
+
+```{r}
+#
+# logistic with interaction
+#
+logis=glm(SeriousDlqin2yrs~(.)^2,data=train,family = binomial,control = glm.control(maxit = 5000))
+
+
+log_pred=predict(logis, newdata=test,type="response")
+
+my_submission = data.frame(Id = test_id, 	Probability =log_pred )
+write.csv(my_submission, "logistic_inter.csv", row.names = F)
+```
+
+```{r}
+#
+# random forest
+#
+#set.seed(1)
+#randomfor=ranger(train_pca$SeriousDlqin2yrs ~ ., data = train_pca, importance = "permutation")
+randomfor=ranger(train_pca$SeriousDlqin2yrs ~ ., data = train, importance = "none")
+#randomfor=ranger(train_pca$SeriousDlqin2yrs ~ ., data = train, importance = "impurity")
+#randomfor=ranger(SeriousDlqin2yrs ~ .,num.trees = 500,min.node.size = 10,mtry= 10,data = train, importance = "impurity")
+
+randomfor_pred = predict(randomfor, data = test)
+
+my_submission = data.frame(Id = test_id, 	Probability =randomfor_pred$predictions )
+write.csv(my_submission, "randomforest_non-nop_mo.csv", row.names = F)
+```
+
+

@@ -1,0 +1,195 @@
+
+
+```{r}
+#
+# data
+#
+library(dummies)
+require(methods)
+library(glmnet)
+library(MASS)
+library(corrplot)
+library(pls)
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/assignment 2")
+train = read.csv("reduced_train.csv", header = TRUE)
+test  = read.csv("reduced_test.csv",  header = TRUE)
+
+range(train$loss)
+
+train_id=train$id
+train$id = NULL
+test_id = test$id
+test$id = NULL
+
+
+
+x=cor(train)
+corrplot(x,method="number")
+corrplot.mixed(x,number.cex=0.7,tl.cex=0.7)
+
+```
+
+```{r}
+
+#
+# Multiple regression
+#
+glm.fit = glm(loss ~ ., data = train)
+
+y = predict(glm.fit, train)
+mean(abs(y-train$loss))
+
+y_hat = predict(glm.fit, test)
+
+
+my_submission = data.frame(id = test_id, 	loss = y_hat)
+write.csv(my_submission, "regression.csv", row.names = F)
+```
+
+```{r}
+#
+# ridge
+#
+
+
+ridge.reg = cv.glmnet( x = as.matrix(train[,-15]), y = as.matrix(train$loss), alpha = 0)
+
+y = predict(ridge.reg, newx =as.matrix(train[,-15]), s = ridge.reg$lambda.min)
+
+mean(abs(y-train$loss))
+
+y_hat =predict(ridge.reg, newx =as.matrix(test), s = ridge.reg$lambda.min)
+
+y_hat=as.numeric(y_hat)
+
+my_submission = data.frame(id = test_id, 	loss = y_hat)
+write.csv(my_submission, "ridge.csv", row.names = F)
+```
+
+```{r}
+#
+# Lasso
+#
+
+lasso.reg = cv.glmnet( x = as.matrix(train[,-15]), y = as.matrix(train$loss), alpha = 1)
+
+y = predict(lasso.reg, newx =as.matrix(train[,-15]), s = lasso.reg$lambda.min)
+
+mean(abs(y-train$loss))
+
+y_hat =predict(lasso.reg, newx =as.matrix(test), s = lasso.reg$lambda.min)
+
+y_hat=as.numeric(y_hat)
+
+my_submission = data.frame(id = test_id, 	loss = y_hat)
+write.csv(my_submission, "lasso.csv", row.names = F)
+```
+
+
+
+```{r}
+#
+# PCR
+#
+
+combined=rbind(train[,-15],test)
+pca_result=prcomp(combined,scale=TRUE)
+screeplot(pca_result)
+cumulative_variation = cumsum((pca_result$sdev^2)/sum(pca_result$sdev^2))
+plot(cumulative_variation, xlab = "Number of Components", type = "l")
+max(which(cumulative_variation < 0.75)) 
+max(which(cumulative_variation < 0.80)) 
+max(which(cumulative_variation < 0.90)) 
+max(which(cumulative_variation < 0.95))
+
+train_pca=as.data.frame(pca_result$x[1:188318,1:14])
+test_pca=as.data.frame(pca_result$x[188319:313864,1:14])
+train_pca$loss=train$loss
+
+glm.fit = glm(loss ~ (.)^2, data = train_pca)
+
+y = predict(glm.fit, train_pca)
+mean(abs(y-train_pca$loss))
+
+y_hat = predict(glm.fit, test_pca)
+
+
+#
+#pls
+#
+set.seed(123)
+pcr_model = pcr(loss ~ ., data = train, scale = TRUE, validation = "CV", ncomp = 14)
+pcr_cv = RMSEP(pcr_model, estimate = "CV")
+plot(pcr_cv$val[-1], pch = 19, type = "b", ylab = "Test RMSE", xlab = "Number of Components")
+
+best_comp = which.min(pcr_cv$val[-1])
+best_comp
+
+abline(v = best_comp, col = "red")
+
+pcr_cv$val[ best_comp ]
+
+y_hat=predict(pcr_model, newdata = test,ncomp = best_comp)
+
+my_submission = data.frame(id = test_id, 	loss = as.numeric(y_hat))
+write.csv(my_submission, "PCR_pls.csv", row.names = F)
+```
+
+```{r}
+#
+# Multiple regression variable selection
+#
+train.exp=train
+train.exp$loss = log(train$loss)
+glm.fit = glm(loss ~ ., data = train.exp)
+glm.var  = stepAIC(glm.fit, direction = "backward")
+
+y = predict(glm.var, train.exp)
+mean(abs(exp(y)-exp(train.exp$loss)))
+
+y_hat = predict(glm.var, test)
+
+my_submission = data.frame(id = test_id, 	loss = exp(y_hat))
+write.csv(my_submission, "selection_log.csv", row.names = F)
+```
+
+
+```{r}
+#
+#ridge pca-log
+#
+
+
+ridge.reg = cv.glmnet( x = as.matrix(train_pca[,-15]), y = as.matrix(log(train_pca$loss)), alpha = 0)
+
+y = predict(ridge.reg, newx =as.matrix(train_pca[,-15]), s = ridge.reg$lambda.min)
+
+mean(abs(exp(y)-train_pca$loss))
+
+y_hat =predict(ridge.reg, newx =as.matrix(test_pca), s = ridge.reg$lambda.min)
+
+y_hat=as.numeric(y_hat)
+
+my_submission = data.frame(id = test_id, 	loss = exp(y_hat))
+write.csv(my_submission, "ridge_pca_log.csv", row.names = F)
+```
+
+```{r}
+# interaction-log
+#
+
+
+train.exp=train
+train.exp$loss = log(train$loss)
+glm.fit = glm(loss ~ (.)^2, data = train.exp)
+
+y = predict(glm.fit, train.exp)
+mean(abs(exp(y)-exp(train.exp$loss)))
+
+y_hat = predict(glm.fit, test)
+
+
+my_submission = data.frame(id = test_id, 	loss = exp(y_hat))
+write.csv(my_submission, "interaction_log.csv", row.names = F)
+```
+

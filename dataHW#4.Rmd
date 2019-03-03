@@ -1,0 +1,289 @@
+---
+title: "Data HW 4"
+output: html_notebook
+---
+
+
+
+```{r}
+#
+# data
+#
+library(ggplot2)
+library(BBmisc)
+library(class)
+library(gbm)
+library(dummies)
+require(methods)
+library(glmnet)
+library(MASS)
+library(corrplot)
+library(pls)
+library(caret)
+library(ranger)
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/assignment 4")
+train = read.csv("train.csv", header = TRUE)
+test  = read.csv("test.csv",  header = TRUE)
+summary(train)
+range(train[,11])
+ggplot(train_id,train[,11])
+train_id = train$id
+test_id = test$id
+test$id = NULL
+train$id=NULL
+
+train_noform=train[,-12]
+train_noband=train[,-13]
+
+```
+
+
+```{r}
+#
+# multiple regression
+#
+
+#
+# seperate
+glm.fit.fo = glm(formation_energy_ev_natom ~ ., data = train_noband)
+form = predict(glm.fit.fo, test)
+
+glm.fit.ba = glm(bandgap_energy_ev ~ ., data = train_noform)
+band = predict(glm.fit.ba, test)
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form, bandgap_energy_ev=band )
+write.csv(my_submission, "reg_seprate.csv", row.names = F)
+
+#
+# sequential from first
+testf=test
+glm.fit.fo = glm(formation_energy_ev_natom ~ ., data = train_noband)
+form.f = predict(glm.fit.fo, testf)
+glm.fit = glm(bandgap_energy_ev ~ ., data = train)
+testf$formation_energy_ev_natom=form.f
+band.f = predict(glm.fit, testf)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form.f, bandgap_energy_ev=band.f )
+write.csv(my_submission, "reg_formfirst.csv", row.names = F)
+
+#sequential band first
+testb=test
+glm.fit.ba = glm(bandgap_energy_ev ~ ., data = train_noform)
+band.b = predict(glm.fit.ba, testb)
+glm.fit = glm(formation_energy_ev_natom ~ ., data = train)
+testb$bandgap_energy_ev=band.b
+form.b = predict(glm.fit, testb)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form.b, bandgap_energy_ev=band.b )
+write.csv(my_submission, "reg_banfirst.csv", row.names = F)
+
+
+
+#
+# variable selection
+
+glm.fit.fo = glm(formation_energy_ev_natom ~ ., data = train_noband)
+glm.var.fo  = stepAIC(glm.fit.fo, direction = "backward")
+form = predict(glm.var.fo, test)
+
+glm.fit.ba = glm(bandgap_energy_ev ~ ., data = train_noform)
+glm.var.ba  = stepAIC(glm.fit.ba, direction = "backward")
+band = predict(glm.var.ba, test)
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form, bandgap_energy_ev=band )
+write.csv(my_submission, "reg_varsel.csv", row.names = F)
+
+
+#interaction
+glm.fit.fo = glm(formation_energy_ev_natom ~ .^2, data = train_noband)
+form = predict(glm.fit.fo, test)
+
+glm.fit.ba = glm(bandgap_energy_ev ~ .^2, data = train_noform)
+band = predict(glm.fit.ba, test)
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form, bandgap_energy_ev=band )
+write.csv(my_submission, "reg_interaction.csv", row.names = F)
+
+```
+
+```{r}
+#
+# lasso
+#
+lasso.reg.fo = cv.glmnet( x = as.matrix(train_noband[,-12]), y = as.matrix(train_noband$formation_energy_ev_natom), alpha = 1)
+form=predict(lasso.reg.fo, newx =as.matrix(test), s = lasso.reg.fo$lambda.min)
+
+lasso.reg.ba = cv.glmnet( x = as.matrix(train_noform[,-12]), y = as.matrix(train_noform$bandgap_energy_ev), alpha = 1)
+band=predict(lasso.reg.ba, newx =as.matrix(test), s = lasso.reg.ba$lambda.min)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = as.numeric(form) , bandgap_energy_ev=as.numeric(band))
+write.csv(my_submission, "lasso.csv", row.names = F)
+
+#interaction
+f.noform = as.formula(bandgap_energy_ev ~ .^2)
+train_noform_inter = model.matrix(f.noform, train_noform)[, -1]
+f.noband = as.formula(formation_energy_ev_natom ~ .^2)
+train_noband_inter = model.matrix(f.noband, train_noband)[, -1]
+f_test=as.formula( ~ .^2)
+test_inter=model.matrix(f_test, test)[, -1]
+
+lasso.reg.fo.int = cv.glmnet( x = train_noband_inter, y = as.matrix(train_noband$formation_energy_ev_natom), alpha = 1)
+form=predict(lasso.reg.fo.int, newx =as.matrix(test_inter), s = lasso.reg.fo.int$lambda.min)
+
+lasso.reg.ba.int = cv.glmnet( x =train_noform_inter , y = as.matrix(train_noform$bandgap_energy_ev), alpha = 1)
+band=predict(lasso.reg.ba.int, newx =as.matrix(test_inter), s = lasso.reg.ba.int$lambda.min)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = as.numeric(form) , bandgap_energy_ev=as.numeric(band))
+write.csv(my_submission, "lasso_inter.csv", row.names = F)
+```
+
+```{r}
+#
+# ridge
+#
+
+ridge.reg.fo = cv.glmnet( x = as.matrix(train_noband[,-12]), y = as.matrix(train_noband$formation_energy_ev_natom), alpha = 0)
+form=predict(ridge.reg.fo, newx =as.matrix(test), s = ridge.reg.fo$lambda.min)
+
+ridge.reg.ba = cv.glmnet( x = as.matrix(train_noform[,-12]), y = as.matrix(train_noform$bandgap_energy_ev), alpha = 0)
+band=predict(ridge.reg.ba, newx =as.matrix(test), s = ridge.reg.ba$lambda.min)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom =as.numeric(form) , bandgap_energy_ev=as.numeric(band))
+write.csv(my_submission, "ridge.csv", row.names = F)
+
+#
+# interaction
+f.noform = as.formula(bandgap_energy_ev ~ .^2)
+train_noform_inter = model.matrix(f.noform, train_noform)[, -1]
+f.noband = as.formula(formation_energy_ev_natom ~ .^2)
+train_noband_inter = model.matrix(f.noband, train_noband)[, -1]
+f_test=as.formula( ~ .^2)
+test_inter=model.matrix(f_test, test)[, -1]
+
+lasso.reg.fo.int = cv.glmnet( x = train_noband_inter, y = as.matrix(train_noband$formation_energy_ev_natom), alpha = 0)
+form=predict(lasso.reg.fo.int, newx =as.matrix(test_inter), s = lasso.reg.fo.int$lambda.min)
+
+lasso.reg.ba.int = cv.glmnet( x =train_noform_inter , y = as.matrix(train_noform$bandgap_energy_ev), alpha = 0)
+band=predict(lasso.reg.ba.int, newx =as.matrix(test_inter), s = lasso.reg.ba.int$lambda.min)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = as.numeric(form) , bandgap_energy_ev=as.numeric(band))
+write.csv(my_submission, "ridge_inter.csv", row.names = F)
+```
+
+```{r}
+#
+# random forest
+#
+
+
+#set.seed(1)
+
+randomfor.fo=ranger(formation_energy_ev_natom ~ .,num.trees = 700,min.node.size = 5,mtry = 2,data = train_noband, importance = "impurity")
+form = predict(randomfor.fo, data = test)
+
+randomfor.ba=ranger(bandgap_energy_ev ~ .,num.trees = 700,min.node.size = 5,mtry = 2,data = train_noform, importance = "impurity")
+band = predict(randomfor.ba, data = test)
+
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form$predictions, bandgap_energy_ev=band$predictions )
+write.csv(my_submission, "randomforest_imp.csv", row.names = F)
+```
+
+```{r}
+#
+# boosted
+#
+set.seed(1)
+
+gradboost.fo=  gbm(formation_energy_ev_natom ~ .,  data = train_noband, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+form = predict(gradboost.fo, newdata = test, n.tree = gradboost.fo$n.trees)
+
+gradboost.ba=  gbm(bandgap_energy_ev ~ .,  data = train_noform, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+band = predict(gradboost.ba, newdata = test, n.tree = gradboost.ba$n.trees)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = form, bandgap_energy_ev=band )
+write.csv(my_submission, "gbm_gaus_150_.1_.5.csv", row.names = F)
+```
+
+
+```{r}
+#
+#log
+#
+set.seed(1)
+log_train_noband=train_noband
+log_train_noband$formation_energy_ev_natom=log(log_train_noband$formation_energy_ev_natom+1)
+log_train_noform=train_noform
+log_train_noform$bandgap_energy_ev=log(log_train_noform$bandgap_energy_ev+1)
+
+log_train_noband$spacegroup=log(log_train_noband$spacegroup+0.00001)
+log_train_noband$lattice_angle_gamma_degree=log(log_train_noband$lattice_angle_gamma_degree+0.00001)
+
+log_train_noform$spacegroup=log(log_train_noform$spacegroup+0.00001)
+log_train_noform$lattice_angle_gamma_degree=log(log_train_noform$lattice_angle_gamma_degree+0.00001)
+
+log_test=test
+log_test$spacegroup=log(test$spacegroup+0.00001)
+log_test$lattice_angle_gamma_degree=log(test$lattice_angle_gamma_degree+0.00001)
+
+
+
+gradboost.ba=  gbm(bandgap_energy_ev ~ .^2,  data = log_train_noform, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+band = predict(gradboost.ba, newdata = log_test, n.tree = gradboost.ba$n.trees)
+
+gradboost.fo=  gbm( formation_energy_ev_natom ~ .^2,  data = log_train_noband, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+form = predict(gradboost.fo, newdata = log_test, n.tree = gradboost.fo$n.trees)
+
+
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = exp(form)-1 , bandgap_energy_ev=  exp(band)-1  )
+write.csv(my_submission, "gbm_gaus_150_3_.1_.5_logall_inter.csv", row.names = F)
+```
+
+
+```{r}
+#
+# pca
+#
+
+combined=rbind(train[,-c(12:13)],test)
+pca_result=prcomp(combined,scale=TRUE)
+
+train_pca=as.data.frame(pca_result$x[1:2400,1:11])
+test_pca=as.data.frame(pca_result$x[2401:3000,1:11])
+train_pca_noband=train_pca
+train_pca_noform=train_pca
+train_pca_noband$formation_energy_ev_natom=train$formation_energy_ev_natom
+train_pca_noform$bandgap_energy_ev=train$bandgap_energy_ev
+
+
+gradboost.fo=  gbm( formation_energy_ev_natom ~ .,  data = train_pca_noband, distribution="gaussian")
+form = predict(gradboost.fo, newdata = test_pca, n.tree = gradboost.fo$n.trees)
+
+gradboost.ba=  gbm(bandgap_energy_ev ~ .,  data = train_pca_noform, distribution="gaussian")
+band = predict(gradboost.ba, newdata = test_pca, n.tree = gradboost.ba$n.trees)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = exp(form)-1 , bandgap_energy_ev=  exp(band)-1  )
+write.csv(my_submission, "gbm_gaus_150_3_.1_.5_pca.csv", row.names = F)
+
+```
+
+```{r}
+#
+# standardize
+#
+
+train_std=normalize(train[,-c(12,13)],method = "standardize")
+test_std=normalize(test,method = "standardize")
+train_std_noband=train_std
+train_std_noform=train_std
+train_std_noband$formation_energy_ev_natom=train$formation_energy_ev_natom
+train_std_noform$bandgap_energy_ev=train$bandgap_energy_ev
+
+gradboost.fo=  gbm( formation_energy_ev_natom ~ .,  data = train_std_noband, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+form = predict(gradboost.fo, newdata = test_std, n.tree = gradboost.fo$n.trees)
+
+gradboost.ba=  gbm(bandgap_energy_ev ~ .,  data = train_std_noform, distribution="gaussian", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+band = predict(gradboost.ba, newdata = test_std, n.tree = gradboost.ba$n.trees)
+
+my_submission = data.frame(id = test_id, 	formation_energy_ev_natom = exp(form)-1 , bandgap_energy_ev=  exp(band)-1  )
+write.csv(my_submission, "gbm_gaus_150_3_.1_.5_std.csv", row.names = F)
+```
+

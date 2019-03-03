@@ -1,0 +1,308 @@
+
+
+```{r}
+#
+# data
+#
+library(dummies)
+require(methods)
+library(glmnet)
+library(MASS)
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/assignment 1")
+train = read.csv("train.csv", header = TRUE)
+test  = read.csv("test.csv",  header = TRUE)
+train_delet=read.csv("train_delete.csv",header = TRUE)
+train$SalePrice = log(train$SalePrice)
+train_delet$SalePrice = log(train_delet$SalePrice)
+dim(train)
+train_Id=train$Id
+train$Id = NULL
+test_Id = test$Id
+test$Id = NULL
+train_delet_Id=train_delet$Id
+train_delet$Id=NULL
+
+train$PoolQC = NULL
+test$PoolQC  = NULL
+train_delet$PoolQC=NULL
+
+train$Fence  = NULL
+test$Fence   = NULL
+train_delet$Fence=NULL
+
+train$Alley  = NULL
+test$Alley   = NULL
+train_delet$Alley=NULL
+
+train$MiscFeature = NULL
+test$MiscFeature  = NULL
+train_delet$MiscFeature=NULL
+
+
+train$X3SsnPorch = NULL
+test$X3SsnPorch  = NULL
+train_delet$X3SsnPorch=NULL
+#
+#
+#
+
+#
+#
+# #
+# train$PoolArea = NULL
+# test$PoolArea  = NULL
+# train_delet$PoolArea=NULL
+# 
+# train$LowQualFinSF = NULL
+# test$LowQualFinSF  = NULL
+# train_delet$LowQualFinSF=NULL
+# 
+# train$BsmtHalfBath = NULL
+# test$BsmtHalfBath  = NULL
+# train_delet$BsmtHalfBath=NULL
+# 
+# train$MiscVal = NULL
+# test$MiscVal  = NULL
+# train_delet$MiscVal=NULL
+
+ #
+# train$GrLivArea = NULL
+# test$GrLivArea  = NULL
+ #
+# train$TotalBsmtSF = NULL
+# test$TotalBsmtSF  = NULL
+ #
+# train$Exterior2nd = NULL
+# test$Exterior2nd  = NULL
+
+
+
+
+dim(train)
+names(train)
+
+# #remove missing row
+ # train.om = na.omit(train)
+ # dim(train.om)
+ # dim(train)
+```
+
+
+
+```{r}
+#
+# filling missing values
+#
+
+pick_at_random = function(x)
+{
+  possible_levels = levels(x)
+  index           = sample(1:length(possible_levels), size = 1)
+  return(possible_levels[index])
+}
+
+for (i in 1:ncol(train))
+{
+  tmp_var = train[,i]
+  if ( class(tmp_var) == "factor" )  {
+    tmp_var[is.na(tmp_var)] = pick_at_random(tmp_var)
+  } else {
+    tmp_var[is.na(tmp_var)] = median(tmp_var, na.rm = T)
+  }
+  train[,i] = tmp_var
+}
+
+
+for (i in 1:ncol(test))
+{
+  tmp_var = test[,i]
+  if ( class(tmp_var) == "factor" )  {
+    tmp_var[is.na(tmp_var)] = pick_at_random(tmp_var)
+  } else {
+    tmp_var[is.na(tmp_var)] = median(tmp_var, na.rm = T)
+  }
+  test[,i] = tmp_var
+}
+```
+
+```{r}
+#
+# dummy
+#
+pick_at_random = function(x)
+{
+  possible_levels = levels(x)
+  index           = sample(1:length(possible_levels), size = 1)
+  return(possible_levels[index])
+}
+
+for (i in 1:ncol(train_delet))
+{
+  tmp_var = train_delet[,i]
+  if ( class(tmp_var) == "factor" )  {
+    tmp_var[is.na(tmp_var)] = pick_at_random(tmp_var)
+  } else {
+    tmp_var[is.na(tmp_var)] = median(tmp_var, na.rm = T)
+  }
+  train_delet[,i] = tmp_var
+}
+
+
+
+
+
+dummy_test=dummy.data.frame(test,names = c(   "MSZoning"          ,      "Street"    ,    "LotShape"  ,   
+ "LandContour" ,  "Utilities"  ,   "LotConfig" ,    "LandSlope"    , "Neighborhood" , "Condition1" ,  
+"Condition2"  ,  "BldgType"    ,  "HouseStyle"   ,           
+   "RoofStyle"  ,   "RoofMatl"   ,   "Exterior1st" ,  "Exterior2nd"  , "MasVnrType"  , 
+     "ExterQual"  ,   "ExterCond" ,    "Foundation"   , "BsmtQual" ,     "BsmtCond"  ,   
+ "BsmtExposure",  "BsmtFinType1"    ,  "BsmtFinType2" ,         
+   "Heating"   ,    "HeatingQC"   ,  "CentralAir"   , "Electrical",
+           "KitchenQual"    , "Functional",   
+     "FireplaceQu"   ,"GarageType"   ,    "GarageFinish"     ,
+     "GarageQual"  ,  "GarageCond"  ,  "PavedDrive"    ,      
+ "SaleType"   ,   "SaleCondition" ))
+
+dummy_train=dummy.data.frame(train,names = c(   "MSZoning"          ,      "Street"    ,    "LotShape"  ,   
+ "LandContour" ,  "Utilities"  ,   "LotConfig" ,    "LandSlope"    , "Neighborhood" , "Condition1" ,  
+"Condition2"  ,  "BldgType"    ,  "HouseStyle"   ,           
+   "RoofStyle"  ,   "RoofMatl"   ,   "Exterior1st" ,  "Exterior2nd"  , "MasVnrType"  , 
+     "ExterQual"  ,   "ExterCond" ,    "Foundation"   , "BsmtQual" ,     "BsmtCond"  ,   
+ "BsmtExposure",  "BsmtFinType1"    ,  "BsmtFinType2" ,         
+   "Heating"   ,    "HeatingQC"   ,  "CentralAir"   , "Electrical",
+           "KitchenQual"    , "Functional",   
+     "FireplaceQu"   ,"GarageType"   ,    "GarageFinish"     ,
+     "GarageQual"  ,  "GarageCond"  ,  "PavedDrive"    ,      
+ "SaleType"   ,   "SaleCondition" ))
+
+dummy_train_del=dummy.data.frame(train_delet,names = c(   "MSZoning"          ,      "Street"    ,    "LotShape"  ,   
+ "LandContour" ,  "Utilities"  ,   "LotConfig" ,    "LandSlope"    , "Neighborhood" , "Condition1" ,  
+"Condition2"  ,  "BldgType"    ,  "HouseStyle"   ,           
+   "RoofStyle"  ,   "RoofMatl"   ,   "Exterior1st" ,  "Exterior2nd"  , "MasVnrType"  , 
+     "ExterQual"  ,   "ExterCond" ,    "Foundation"   , "BsmtQual" ,     "BsmtCond"  ,   
+ "BsmtExposure",  "BsmtFinType1"    ,  "BsmtFinType2" ,         
+   "Heating"   ,    "HeatingQC"   ,  "CentralAir"   , "Electrical",
+           "KitchenQual"    , "Functional",   
+     "FireplaceQu"   ,"GarageType"   ,    "GarageFinish"     ,
+     "GarageQual"  ,  "GarageCond"  ,  "PavedDrive"    ,      
+ "SaleType"   ,   "SaleCondition" ))
+
+
+
+```
+
+
+```{r}
+#
+# Multiple regression
+#
+
+
+glm.fit = glm(SalePrice ~ ., data = train)
+# options(max.print = 10000)
+# summary(glm.fit)
+
+#glm.fit = glm(SalePrice ~ .^2, data = train)
+y_hat = predict(glm.fit, test)
+
+SalePrice = exp(y_hat)
+my_submission = data.frame(Id = test_Id, 	SalePrice = SalePrice)
+write.csv(my_submission, "regression.csv", row.names = F)
+```
+
+
+
+
+```{r}
+#
+# Multiple regression variable selection
+#
+glm.fit = glm(SalePrice ~ ., data = train)
+glm.var  = stepAIC(glm.fit, direction = "backward")
+
+
+
+y_hat = predict(glm.var, test)
+
+SalePrice = exp(y_hat)
+my_submission = data.frame(Id = test_Id, 	SalePrice = SalePrice)
+write.csv(my_submission, "regression_varselect_X3.csv", row.names = F)
+```
+
+
+```{r}
+#
+# Ridge regression
+#
+
+
+
+train$PoolArea = NULL
+test$PoolArea  = NULL
+
+train$LowQualFinSF = NULL
+test$LowQualFinSF  = NULL
+
+train$BsmtHalfBath = NULL
+test$BsmtHalfBath  = NULL
+
+train$MiscVal = NULL
+test$MiscVal  = NULL
+
+
+set.seed(1)
+
+ridge.reg = cv.glmnet( x = as.matrix(as.data.frame(lapply(train[,-71], as.numeric))), y = as.matrix(train$SalePrice), alpha = 0)
+
+y_hat = predict(ridge.reg, newx =as.matrix(as.data.frame(lapply(test, as.numeric))), s = ridge.reg$lambda.min)
+
+#ridge.reg = cv.glmnet( x = as.matrix(train[,-71]), y = as.matrix(train$SalePrice), alpha = 0)
+#y_hat = predict(ridge.reg, newx =as.matrix(test), s = ridge.reg$lambda.min)
+
+
+#
+#dummy
+#
+# set.seed(1)
+# ridge.reg = cv.glmnet( x = as.matrix(dummy_train_del), y = as.matrix(dummy_train_del$SalePrice), alpha = 0)
+# 
+# y_hat = predict(ridge.reg, newx =as.matrix(dummy_test), s = ridge.reg$lambda.min)
+# 
+
+SalePrice = exp(y_hat)
+my_submission = data.frame(Id = test_Id, 	SalePrice = SalePrice)
+write.csv(my_submission, "ridge_dummy_del.csv", row.names = F)
+```
+
+
+```{r}
+#
+# Lasso regression
+#
+
+train$PoolArea = NULL
+test$PoolArea  = NULL
+
+train$LowQualFinSF = NULL
+test$LowQualFinSF  = NULL
+
+train$BsmtHalfBath = NULL
+test$BsmtHalfBath  = NULL
+
+train$MiscVal = NULL
+test$MiscVal  = NULL
+
+set.seed(1)
+
+ridge.reg = cv.glmnet( x = as.matrix(as.data.frame(lapply(train[,-71], as.numeric))), y = as.matrix(train$SalePrice), alpha = 1)
+
+y_hat = predict(ridge.reg, newx =as.matrix(as.data.frame(lapply(test, as.numeric))), s = ridge.reg$lambda.min)
+
+SalePrice = exp(y_hat)
+my_submission = data.frame(Id = test_Id, 	SalePrice = SalePrice)
+write.csv(my_submission, "lasso.csv", row.names = F)
+
+```
+
+
+

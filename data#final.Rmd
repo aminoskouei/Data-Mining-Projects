@@ -1,0 +1,258 @@
+---
+title: "final"
+output: html_notebook
+---
+
+
+
+```{r}
+#
+# data
+#
+library(rpart)
+library(pROC)
+library(caret)
+library(ggplot2)
+library(BBmisc)
+library(class)
+library(gbm)
+library(dummies)
+require(methods)
+library(glmnet)
+library(MASS)
+library(corrplot)
+library(pls)
+library(caret)
+library(ranger)
+library(h2o)
+localH2O = h2o.init()
+#library(data.table)
+#tmp = fread("train.csv")
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/final")
+train = read.csv("train_extra.csv", header = TRUE)
+test  = read.csv("test.csv",  header = TRUE)
+names(train)
+names(test)
+head(train)
+head(test)
+dim(train)
+dim(test)
+head(test)
+
+
+train$click_time      = NULL
+train$attributed_time = NULL
+train$ip              = as.factor(train$ip)
+train$app             = as.factor(train$app)
+train$device          = as.factor(train$device)
+train$os              = as.factor(train$os)
+train$channel         = as.factor(train$channel)
+train$is_attributed   = as.factor(train$is_attributed)
+
+
+test$click_time      = NULL
+test$attributed_time = NULL
+test$ip              = as.factor(test$ip)
+test$app             = as.factor(test$app)
+test$device          = as.factor(test$device)
+test$os              = as.factor(test$os)
+test$channel         = as.factor(test$channel)
+
+
+```
+
+
+
+```{r}
+#
+# random forest
+#
+set.seed(1)
+#rf_mod = ranger(is_attributed ~ ., data = train, num.trees = 500, probability = TRUE)
+rf_mod=ranger(is_attributed ~ .,num.trees = 500,min.node.size = 9,mtry= 3,data = train, importance = "none",probability = TRUE)
+
+predict(rf_mod, data = test[1:100,] , verbose = FALSE)$predictions
+predict(rf_mod, data = test[1:100,] , verbose = FALSE)$predictions[,2]
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = predict(rf_mod, data = test[current,] , verbose = FALSE)$predictions[,2]
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+write.csv(submission, "rf-tune.csv", row.names = F)
+```
+
+```{r}
+#
+#GBM
+#
+
+train_trun=train
+test_trun=test
+train_trun$ip      = NULL
+test_trun$ip      = NULL
+#gradboost=  gbm(is_attributed ~ .,  data = train_trun, distribution="bernoulli", n.trees=150, interaction.depth=3, shrinkage = 0.1, bag.fraction = .5)
+#predict(gradboost, newdata = test_trun[1:100,] , n.tree = gradboost$n.trees, type = "response")
+
+trainf=train_trun
+testf=test_trun
+
+feature.names=names(trainf)
+
+for (f in feature.names) {
+  if (class(trainf[[f]])=="factor") {
+    levels <- unique(c(trainf[[f]]))
+    trainf[[f]] <- factor(trainf[[f]],
+                   labels=make.names(levels))
+  }
+}
+
+objControl <- trainControl(method='cv', number=3, returnResamp='none', summaryFunction = twoClassSummary, classProbs = TRUE)
+objModel=train(trainf[,1:4], trainf[,5], 
+                  method='gbm', 
+                  trControl=objControl,  
+                  metric = "ROC",
+                  preProc = c("center", "scale"))
+
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = as.vector(predict(object=objModel, testf[current,], type='prob')[,2])
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+write.csv(submission, "gbm.csv", row.names = F)
+```
+
+```{r}
+#
+#Neural Netwrok
+#
+train_h2o = as.h2o(train)
+test_h2o  = as.h2o(test)
+nnh2o=h2o.deeplearning(x=1:5,y=6,training_frame = train_h2o, standardize    = TRUE,  distribution   = "AUTO", hidden = c(30,30), l1 = 0,  l2 = 0.02, epochs = 20, rate = 0.005, input_dropout_ratio = 0)
+
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+ y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = as.vector(h2o.predict(nnh2o, newdata = test_h2o[current,])[,3])
+  
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+write.csv(submission, "neural.csv", row.names = F)
+```
+
+```{r}
+#
+# Logistic
+#
+logis=glm(is_attributed~.,data=train,family = binomial)
+logis=glm(is_attributed~.,data=train,family = binomial,control = glm.control(maxit = 500))
+
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = predict(logis, data = test[current,] , type="response")
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+write.csv(submission, "logis.csv", row.names = F)
+```
+
+
+```{r}
+#
+# Tree
+#
+
+
+sigle_tree = rpart(is_attributed~., control = rpart.control(minsplit = 85,cp=0), data=train)
+
+tree_pred = predict(sigle_tree, newdata=test[1:100,])
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = predict(logis, data = test[current,] , type="response")
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+write.csv(submission, "tree.csv", row.names = F)
+```
+
+```{r}
+#
+# Lasso
+#
+
+lasso_fit=cv.glmnet(data.matrix(train[,1:5]), data.matrix(train[,6]), alpha=1, nfolds=10, family="binomial",type.measure = "auc")
+
+
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+ y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = as.vector(as.numeric(predict(lasso_fit, data.matrix(test[current,2:6]), s=lasso_fit$lambda.min,type="response")))
+  
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+
+write.csv(submission, "lasso_10.csv", row.names = F)
+```
+
+```{r}
+#
+# Ridge
+#
+
+lasso_fit=cv.glmnet(data.matrix(train[,1:5]), data.matrix(train[,6]), alpha=0, nfolds=5, family="binomial",type.measure = "auc")
+
+
+
+ends = seq(from = 10^6, to = 18 * 10^6, by = 10^6)
+ends = c(ends, nrow(test))
+starts = seq(from = 1, to = 18 * 10^6 + 1, by = 10^6)
+ y = rep(NA, nrow(test))
+for (i in 1:length(ends))
+{
+  current    = starts[i]:ends[i]
+  y[current] = as.vector(as.numeric(predict(lasso_fit, data.matrix(test[current,2:6]), s=lasso_fit$lambda.min,type="response")))
+  
+}
+
+submission = data.frame(click_id = 0:(nrow(test)-1), is_attributed = y)
+
+write.csv(submission, "ridge.csv", row.names = F)
+```
+```
+

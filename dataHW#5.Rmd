@@ -1,0 +1,255 @@
+---
+title: "assignment 5"
+output: html_notebook
+---
+
+
+
+```{r}
+#
+#data
+#
+library(som)
+library(dummies)
+library(PCAmixdata)
+library(h2o)
+localH2O = h2o.init()
+library(nnet)
+library(ggplot2)
+library(caret)
+library(ranger)
+library(e1071)
+library(FNN)
+library(gbm)
+library(randomForest)
+library(rpart)
+library(naivebayes)
+library(kernlab)
+library(boot)
+library(glmnet)
+library(Matrix)
+library(MASS)
+setwd("/Users/milad/Google Drive/PhD/Data mining/assignment/assignment 5")
+train = read.csv("train.csv", header = TRUE)
+test  = read.csv("test.csv",  header = TRUE)
+train$label = as.factor(train$label)
+x_train=model.matrix(label~.,train)[,-1]
+dim(train)
+dim(test)
+#
+#PCA
+#
+
+combined=rbind(train[,-1],test)
+pca_result=prcomp(combined)
+cumulative_variation = cumsum((pca_result$sdev^2)/sum(pca_result$sdev^2))
+max(which(cumulative_variation < 0.95))
+#p=153
+dim(test)
+dim(train)
+train_pca=as.data.frame(pca_result$x[1:42000,1:60])
+x_train_pca=train_pca
+test_pca=as.data.frame(pca_result$x[42001:70000,1:60])
+train_pca$label=as.factor(train$label)
+
+
+
+
+```
+
+
+```{r}
+#
+# SVM
+#
+# fit the model
+
+#svm_fit=svm(label~.,data=train_pca,cost=1,gamma=0.01)
+#svm_fit_lin=svm(label~.,data=train_pca,cost=1,gamma=0.01,kernel='linear')
+#svm_fit_pol=svm(label~.,data=train_pca,cost=1,gamma=0.01,kernel='polynomial')
+svm_fit_rad=svm(label~.,data=train_pca,cost=1,gamma=0.01,kernel='radial')
+#svm_fit_sig=svm(label~.,data=train_pca,cost=1,gamma=0.01,kernel='sigmoid')
+
+#train error
+#
+svm_pred = predict(svm_fit, x_train_pca)
+
+# confusion matrix
+ct = table(predicted=svm_pred, observed=train$label)
+train.error= (NROW(train$label)-sum(diag(ct)))/NROW(train$label)
+train.error
+error=mean(svm_pred !=train$label)
+accuracy = 1-error
+
+#test 
+#
+svm_pred = predict(svm_fit_rad,test_pca)
+
+pred=data.frame(ImageId=1:NROW(test),Label=svm_pred)
+write.csv(pred,file = "svm_1_0.01_rad.csv",row.names = FALSE)
+
+```
+
+```{r}
+#
+# Neural Networks
+#
+set.seed(1)
+nn_reg = nnet(loss ~ ., size = 14, data = train_train, linout = TRUE, maxit = 100)
+
+#
+# train error
+RMSE_train_MR=  sqrt(mean((train_test$loss - predict(nn_reg,train_test))^2))
+print("RMSE")
+RMSE_train_MR
+
+#
+# deep learning
+#
+
+train_pca_h2o = as.h2o(train_pca)
+test_pca_h2o  = as.h2o(test_pca)
+#
+# tuning
+
+set.seed(1)
+
+system.time({
+ 
+model = h2o.deeplearning(
+
+ training_frame = train_pca_h2o,                  ### This is our data frame.
+ x = 1:60,                               ### Columns 2-785 are the predictors.
+ y = 61,                                   ### Column 1 is our response.
+ nfolds = 3,                              ### If zero (default), no cross validation.
+
+ standardize    = TRUE,                   ### This is the default. 
+ distribution   = "multinomial",          ### Default to AUTO.  
+ activation     = "RectifierWithDropout", ### Defaults to "Rectifier"
+ hidden         = c(25,25),               ### Defaults to (32,32,32)
+
+ l1 = 0,         ### Defaults to 0.  This is L-1 weight decay on the weights.
+ l2 = 0,         ### Defaults to 0.  This is L-2 weight decay on the weights.
+ epochs = 10,    ### Defaults to 10.  
+ rate = 0.005,   ### Defaults to 0.005.  This is the learning rate.
+
+ hidden_dropout_ratios = c(0.1,0.1),  ### Defaults to 0.5 per hidden layer. The
+                                      ###  length of this should match the hidden length.
+ input_dropout_ratio = 0,             ### Defaults to 0.
+)
+
+})
+
+nnh2o=h2o.deeplearning(x=1:60,y=61,training_frame = train_pca_h2o, standardize    = TRUE,  distribution   = "multinomial", hidden = c(50,50), l1 = 0,  l2 = 0.02, epochs = 20, rate = 0.005, input_dropout_ratio = 0)
+
+#
+#training
+
+pred     = h2o.predict(nnh2o, newdata = train_pca_h2o)
+
+cm = table(Observed = as.data.frame(train_pca_h2o$label)$label, Predicted = as.data.frame(pred)$predict)
+cm
+
+tain_error = 1- sum(diag(cm))/sum(cm)
+train_error
+
+#
+# test error
+y_hat=h2o.predict(nnh2o, newdata = test_pca_h2o)
+
+pred=data.frame(ImageId=1:NROW(test),Label=as.data.frame(y_hat)$predict)
+write.csv(pred,file = "deepneural.csv",row.names = FALSE)
+
+
+```
+
+```{r}
+#
+# QDA
+#
+# fit the model ( using principle component)
+
+
+qda_fit = qda(x_train_pca, train$label)
+
+#train error
+#
+qda_pred = predict(qda_fit,x_train_pca )
+
+# confusion matrix
+ct = table(predicted=qda_pred$class, observed=train$label)
+train.error= (NROW(train$label)-sum(diag(ct)))/NROW(train$label)
+train.error
+
+#test 
+#
+
+qda_pred = predict(qda_fit,test_pca)
+
+pred=data.frame(ImageId=1:NROW(test),Label=qda_pred$class)
+write.csv(pred,file = "qda.csv",row.names = FALSE)
+```
+
+```{r}
+#
+# Random Forest
+#
+#
+#Random Forest
+#
+# fit the model
+#randomfor=ranger(train$label ~ ., data = train, importance = "permutation")
+#randomfor=ranger(train$label ~ ., data = train, importance = "none")
+#randomfor=ranger(train_pca$label ~ ., data = train_pca, importance = "impurity")
+randomfor=ranger(train_pca$label ~ .,num.trees = 700,min.node.size = 5,mtry = 2,data = train_pca, importance = "impurity")
+
+#train error
+#
+randomfor_pred = predict(randomfor, data = train)
+
+# confusion matrix
+ct= table(predicted = randomfor_pred$predictions, observed = train$label)
+train.error= (NROW(train$label)-sum(diag(ct)))/NROW(train$label)
+options(digits=10)
+train.error
+
+#test error
+#
+randomfor_pred = predict(randomfor, data = test_pca)
+pred=data.frame(ImageId=1:NROW(test),Label=randomfor_pred$predictions)
+write.csv(pred,file = "RF.csv",row.names = FALSE)
+```
+
+```{r}
+#
+#GBM
+#
+
+# fit the model
+
+
+
+gradboost=  gbm.fit(x_train_pca,  factor(train$label), distribution="multinomial", n.trees=200, interaction.depth=3)
+
+#gradboost=  gbm.fit(x_train_pca,  factor(train$label), distribution="gaussian", n.trees=500, interaction.depth=2)
+
+#gradboost=  gbm.fit(x_train_pca,  factor(train$label), distribution="multinomial", n.trees=200, interaction.depth=3, shrinkage = 0.3, bag.fraction = 1)
+
+
+#train error
+#
+gradboost_pred = apply(predict(gradboost, x_train_pca, n.trees=gradboost$n.trees),1,which.max) - 1L
+
+# confusion matrix
+ct= table(predicted = gradboost_pred, observed = train$label)
+train.error= (NROW(train$label)-sum(diag(ct)))/NROW(train$label)
+train.error
+
+#test error
+#
+
+gradboost_pred = apply(predict(gradboost, test_pca, n.trees=gradboost$n.trees),1,which.max) - 1L
+pred=data.frame(ImageId=1:NROW(test),Label=gradboost_pred)
+write.csv(pred,file = "GBM_200_3.csv",row.names = FALSE)
+```
+
